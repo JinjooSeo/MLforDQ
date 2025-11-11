@@ -1,0 +1,45 @@
+{
+  "TestCut": {
+    "type": "Binary",
+    "title": "MyBDTModel",
+    "inputFeatures": [
+      "kITSChi2NCl1",
+      "kTPCNClsCR1",
+      "kTPCChi2NCl1",
+      "kTPCNSigmaEl1",
+      "kITSChi2NCl2",
+      "kTPCNClsCR2",
+      "kTPCChi2NCl2",
+      "kTPCNSigmaEl2",
+      "kChi2pca",
+      "kCosPointingAngle"
+    ],
+    "modelFiles": [
+      "cent_0_100_pt0_2_onnx.onnx",
+      "cent_0_100_pt2_100_onnx.onnx"
+    ],
+    "cent": "kCentFT0C",
+    "AddCentCut-Cent00100": {
+      "centMin": 0,
+      "centMax": 100,
+      "AddPtCut-pTBin1": {
+        "pTMin": 0,
+        "pTMax": 2,
+        "AddMLCut-background": {
+          "var": "kBdtBackground",
+          "cut": 0.5427391375914422,
+          "exclude": false
+        }
+      },
+      "AddPtCut-pTBin2": {
+        "pTMin": 2,
+        "pTMax": 100,
+        "AddMLCut-background": {
+          "var": "kBdtBackground",
+          "cut": 0.5349093448757238,
+          "exclude": false
+        }
+      }
+    }
+  }
+}

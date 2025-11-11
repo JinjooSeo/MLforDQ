@@ -1,0 +1,45 @@
+{
+  "TestCut": {
+    "type": "MultiClass",
+    "title": "MyBDTModel",
+    "inputFeatures": [
+      "kITSChi2NCl1",
+      "kTPCNClsCR1",
+      "kTPCChi2NCl1",
+      "kTPCNSigmaEl1",
+      "kITSChi2NCl2",
+      "kTPCNClsCR2",
+      "kTPCChi2NCl2",
+      "kTPCNSigmaEl2",
+      "kChi2pca",
+      "kCosPointingAngle"
+    ],
+    "modelFiles": [
+      "cent_0_100_pt0_100_onnx.onnx"
+    ],
+    "cent": "kCentFT0C",
+    "AddCentCut-Cent00100": {
+      "centMin": 0,
+      "centMax": 100,
+      "AddPtCut-pTBin1": {
+        "pTMin": 0,
+        "pTMax": 100,
+        "AddMLCut-background": {
+          "var": "kBdtBackground",
+          "cut": 0.3,
+          "exclude": true
+        },
+        "AddMLCut-prompt": {
+          "var": "kBdtPrompt",
+          "cut": 0.5,
+          "exclude": true
+        },
+        "AddMLCut-nonprompt": {
+          "var": "kBdtNonprompt",
+          "cut": 0.4,
+          "exclude": false
+        }
+      }
+    }
+  }
+}
