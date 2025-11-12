@@ -258,7 +258,7 @@ for centmin, centmax in CENT_BINS:
     }
     for i, (ptmin, ptmax) in enumerate(PT_BINS):
         pt_key = f"AddPtCut-pTBin{i+1}"
-        model_name = f"cent_{centmin}_{centmax}_pt{ptmin}_{ptmax}_onnx.onnx"
+        model_name = f"modelBDT_cent{centmin}_{centmax}_pt{ptmin}_{ptmax}_onnx.onnx"
 
         json_dict["TestCut"]["modelFiles"].append(model_name)
         json_dict["TestCut"][cent_key][pt_key] = {

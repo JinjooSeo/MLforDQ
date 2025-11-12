@@ -26,29 +26,30 @@ TIMEOUT=60
 N_TRIALS=100
 
 # pT and centrality bins and type for cut and JSON
-PT_BINS = [(0, 2), (2, 100)]  # pT bins
-CENT_BINS = [(0, 100)]  # centrality bins
-CENT_Type = "kCentFT0C" # kCentFT0C, kCentFT0A, kCentFT0M
+PT_BINS = [(0, 2), (2, 4), (4, 6), (6, 8), (8, 20)]  # pT bins
+CENT_BINS = [(0, 100)]  # centrality bins #(-1, 100) for pp
+CENT_TYPE = "kCentFT0C" # kCentFT0C, kCentFT0A, kCentFT0M (can be extracted from Dielectrons, ReducedEventsInfo, ReducedEventsExtended)
 
-# Input tree files (from dielectronall table (and ReducedEventsExtended for Cent))
+# Input tree files (from dielectronall table)
 DATA_FILE = "treeData.root"
 MC_FILE = "treeMC.root"
 
 # Output directory
-OUT_DIR = "251110_bdtModel"
-Fig_DIR = "figBinary"
-os.makedirs(Fig_DIR, exist_ok=True)
+OUT_DIR = "BinaryClass"
+FIG_DIR = "figBinary"
+os.makedirs(FIG_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True) 
 
 # Parameters for significance calculation
-LUMI = 1706952.6 # Integrated luminosity in microbarn^-1 for pp TRD triggered data
-XSEC_MUB = 0.944 # J/psi cross section in microbarn for 2 < pT < 8 GeV/c and |y|<0.9
-ACC_EFF = 0.013 # Acceptance times efficiency of Jpsi from TRD analysis in 2 < pT < 8 GeV/c and |y|<0.9
+LUMI = 1706952.6 # Integrated luminosity in microbarn^-1 for pp TRD triggered data (need to change to Run 3 value)
+XSEC_MUB = 0.944 # J/psi cross section in microbarn for 2 < pT < 8 GeV/c and |y|<0.9 
+ACC_EFF = 0.013 # Acceptance times efficiency of Jpsi from TRD analysis in 2 < pT < 8 GeV/c and |y|<0.9 (need to change to Run 3 value)
 BR_JPSI = 0.0597 # Branching ratio of Jpsi to e+e-
-SIG_WINOW = 0.3 # Signal window width in GeV/c^2 [2.9 - 3.1]
-deltaY = 1.8 # rapidity range |y| < 0.9
-SB_LEFT = (2.6, 2.8)
-SB_RIGHT = (3.2, 3.4)
+SIG_WINOW = 0.4 # Signal window width in GeV/c^2 [2.8 - 3.1]
+DELTAY = 1.8 # rapidity range |y| < 0.9
+DELTAPT = 6.0 # pT range 2 < pT < 8 GeV/c
+SB_LEFT = (2.4, 2.8)
+SB_RIGHT = (3.1, 3.5)
 
 # ========== Utils ==========
 def infer_n_features(mh: ModelHandler, input_table=None):
@@ -59,7 +60,7 @@ def infer_n_features(mh: ModelHandler, input_table=None):
             return pd.read_parquet(input_table).shape[1]
         raise ValueError("Cannot determine n_features. Provide input table.")
 
-def significance_array(y_score, bkg_mass, signal_efficiencies, lumi, xsec, acc_eff, delta_y, br, sig_win_width, sb_left, sb_right, n_points=100):
+def significance_array(y_score, bkg_mass, signal_efficiencies, lumi, xsec, acc_eff, delta_y, delta_pt, br,sig_win_width, sb_left, sb_right, n_points=100):
     thresholds = np.linspace(np.min(y_score), np.max(y_score), n_points)
     sig_array = []
 
@@ -118,7 +119,7 @@ for centmin, centmax in CENT_BINS:
     for i, (ptmin, ptmax) in enumerate(PT_BINS):
         print(f"Processing cent {centmin}-{centmax}%, pT bin {ptmin} - {ptmax} GeV/c")
         tag = f'cent{centmin}_{centmax}_pt{ptmin}_{ptmax}'
-        #cut_cent = f'{CENT_Type} >= {centmin} and {CENT_Type} < {centmax}'
+        #cut_cent = f'{CENT_TYPE} >= {centmin} and {CENT_TYPE} < {centmax}'
         cut_pt = f'fPt >= {ptmin} and fPt < {ptmax}'
         #cut = f'{pre_cut} and {cut_cent} and {cut_pt}'
         cut = f'{pre_cut} and {cut_pt}'
@@ -129,7 +130,7 @@ for centmin, centmax in CENT_BINS:
         # Prepare datasets
         promptH = promptH_origin.get_subset(size=10000) # Limit size for faster testing
         promptH.apply_preselections(cut)
-        promptH.apply_preselections(f'fMcDecision == 4 and 2.4 < fMass < 3.2')
+        promptH.apply_preselections(f'fMcDecision > 1 and 2.4 < fMass < 3.2')
         dataH = dataH.get_subset(cut)
         bkgH = dataH.get_subset('1.8 < fMass < 2.4 or 3.2 < fMass < 5.0', size=promptH.get_n_cand() * 2) # Neet to optimize size ratio
         train_test_data = train_test_generator([promptH, bkgH], [1, 0], test_size=0.5, random_state=42)
@@ -153,12 +154,12 @@ for centmin, centmax in CENT_BINS:
 
         leg_labels = ['background', 'signal']
         plot_utils.plot_distr([bkgH, promptH], vars_to_draw, bins=100, labels=leg_labels, log=True, density=True, figsize=(12, 7), alpha=0.3, grid=False)
-        plt.savefig(f'{Fig_DIR}/plot_distr_origin_{tag}.png')
+        plt.savefig(f'{FIG_DIR}/plot_distr_origin_{tag}.png')
 
         plt.subplots_adjust(left=0.06, bottom=0.06, right=0.99, top=0.96, hspace=0.55, wspace=0.55)
         corr_plots = plot_utils.plot_corr([bkgH, promptH], vars_to_draw, leg_labels)
-        corr_plots[0].savefig(f'{Fig_DIR}/plot_corr_bkg_origin_{tag}.png', bbox_inches='tight')
-        corr_plots[1].savefig(f'{Fig_DIR}/plot_corr_sig_origin_{tag}.png', bbox_inches='tight')
+        corr_plots[0].savefig(f'{FIG_DIR}/plot_corr_bkg_origin_{tag}.png', bbox_inches='tight')
+        corr_plots[1].savefig(f'{FIG_DIR}/plot_corr_sig_origin_{tag}.png', bbox_inches='tight')
 
         # Remove variables not used for training and plot distributions and correlations
         branches_to_remove_for_training = ["fEta", "fPhi",
@@ -170,7 +171,7 @@ for centmin, centmax in CENT_BINS:
             "fDcaXY2", "fDcaZ2",
             "fTPCNSigmaPr2", "fTPCSignal2", "fTPCNSigmaPi2",
             "fTOFBeta2", "fTOFNSigmaPi2", "fTOFNSigmaPr2", "fTOFNSigmaEl2",
-            "fLz", "fLxy", "fTauz", "fTauxy", "fLzCov", "fLxyCov", "fTauzCov", "fTauxyCov"]        
+            "fLz", "fLxy", "fTauz", "fTauxy", "fLzCov", "fLxyCov", "fTauzCov", "fTauxyCov", "fChi2pca", "fCosPointingAngle"]        
 
         for b in branches_to_remove_for_training:
             if b in vars_to_draw:
@@ -178,12 +179,12 @@ for centmin, centmax in CENT_BINS:
 
         leg_labels = ['background', 'signal']
         plot_utils.plot_distr([bkgH, promptH], vars_to_draw, bins=100, labels=leg_labels, log=True, density=True, figsize=(12, 7), alpha=0.3, grid=False)
-        plt.savefig(f'{Fig_DIR}/plot_distr_pt{ptmin}_{ptmax}.png')
+        plt.savefig(f'{FIG_DIR}/plot_distr_pt{ptmin}_{ptmax}.png')
 
         plt.subplots_adjust(left=0.06, bottom=0.06, right=0.99, top=0.96, hspace=0.55, wspace=0.55)
         corr_plots = plot_utils.plot_corr([bkgH, promptH], vars_to_draw, leg_labels)
-        corr_plots[0].savefig(f'{Fig_DIR}/plot_corr_bkg_{tag}.png', bbox_inches='tight')
-        corr_plots[1].savefig(f'{Fig_DIR}/plot_corr_sig_{tag}.png', bbox_inches='tight')
+        corr_plots[0].savefig(f'{FIG_DIR}/plot_corr_bkg_{tag}.png', bbox_inches='tight')
+        corr_plots[1].savefig(f'{FIG_DIR}/plot_corr_sig_{tag}.png', bbox_inches='tight')
 
         # Remove mass and pT from features
         features_for_train = vars_to_draw.copy()
@@ -206,7 +207,9 @@ for centmin, centmax in CENT_BINS:
         bdt_scores = dataH.get_data_frame()["model_output"].to_numpy()
         mass_after_cut = dataH.get_data_frame()["fMass"].to_numpy()
         efficiency_array, _ = analysis_utils.bdt_efficiency_array(train_test_data[3], y_pred_test, n_points=100)
-        sig_array, thresholds = significance_array(bdt_scores, mass_after_cut, efficiency_array, LUMI, XSEC_MUB, ACC_EFF, deltaY, BR_JPSI, SIG_WINOW, SB_LEFT, SB_RIGHT, n_points=100)
+        
+        sig_array, thresholds = significance_array(bdt_scores, mass_after_cut, efficiency_array, 
+                LUMI, XSEC_MUB, ACC_EFF, DELTAY, DELTAPT, BR_JPSI, SIG_WINOW, SB_LEFT, SB_RIGHT, n_points=100)
 
         # Find best cut
         best_idx = np.argmax(sig_array)
@@ -223,7 +226,7 @@ for centmin, centmax in CENT_BINS:
         plt.title("Significance vs BDT Score Cut")
         plt.axvline(best_cut, color='r', linestyle='--', label=f"Best cut = {best_cut:.2f}")
         plt.legend()
-        plt.savefig(f"{Fig_DIR}/significance_vs_cut_{tag}.png", dpi=300)
+        plt.savefig(f"{FIG_DIR}/significance_vs_cut_{tag}.png", dpi=300)
 
         # Plot distributions after applying best cut
         selected_data_hndl = dataH.get_subset(f"model_output > {best_cut:.2f}")
@@ -232,24 +235,24 @@ for centmin, centmax in CENT_BINS:
         labels_list = ["after selection", "before selection"]
         colors_list = ['orangered', 'cornflowerblue']
         plot_utils.plot_distr([selected_data_hndl, dataH], column='fMass', bins=100, labels=labels_list, colors=colors_list, density=True, fill=True, histtype='step', alpha=0.5)
-        plt.savefig(f'{Fig_DIR}/fMass_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/fMass_{tag}.png', dpi=300)
         labels_list2 = ["after selection"]
         colors_list2 = ['orangered']
         plot_utils.plot_distr(selected_data_hndl, column='fMass', bins=50, labels=labels_list2, colors=colors_list2, density=False, fill=True, histtype='step', alpha=0.5)
-        plt.savefig(f'{Fig_DIR}/fMassTrue_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/fMassTrue_{tag}.png', dpi=300)
         plot_utils.plot_distr([selected_data_hndl, dataH], column='fMass', bins=50, labels=labels_list, colors=colors_list, density=False, fill=True, histtype='step', alpha=0.5)
-        plt.savefig(f'{Fig_DIR}/fMassTogetherTrue_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/fMassTogetherTrue_{tag}.png', dpi=300)
         plot_utils.plot_output_train_test(model_hdl, train_test_data, 100, False, labels_list, True, density=True)
-        plt.savefig(f'{Fig_DIR}/ml_out_fig_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/ml_out_fig_{tag}.png', dpi=300)
         plot_utils.plot_roc_train_test(train_test_data[3], y_pred_test,train_test_data[1], y_pred_train, None, labels_list)
-        plt.savefig(f'{Fig_DIR}/roc_train_test_fig_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/roc_train_test_fig_{tag}.png', dpi=300)
         plot_utils.plot_precision_recall(train_test_data[3], y_pred_test, labels_list)
-        plt.savefig(f'{Fig_DIR}/precision_recall_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/precision_recall_{tag}.png', dpi=300)
         eff, thr = analysis_utils.bdt_efficiency_array(train_test_data[3], y_pred_test, n_points=10)
         plot_utils.plot_bdt_eff(thr, eff)
-        plt.savefig(f'{Fig_DIR}/bdt_efficiency_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/bdt_efficiency_{tag}.png', dpi=300)
         plot_utils.plot_feature_imp(train_test_data[2], train_test_data[3], model_hdl)
-        plt.savefig(f'{Fig_DIR}/feature_importance_{tag}.png', dpi=300)
+        plt.savefig(f'{FIG_DIR}/feature_importance_{tag}.png', dpi=300)
 
         # Save parquet, root and pkl
         parquet_path = f'{OUT_DIR}/bdt_{tag}.parquet.gzip'
@@ -266,33 +269,33 @@ print("Training and evaluation completed. Start JSON export.")
 
 # ========== JSON Export ==========
 json_dict = {
-    "TestCut": {
+    "BDTCut": {
         "type": "Binary",
         "title": "MyBDTModel",
         "inputFeatures": features_onnx,
         "modelFiles": [],
-        "cent": CENT_Type
+        "cent": CENT_TYPE
     }
 }
 
 for centmin, centmax in CENT_BINS:
     cent_key = f"AddCentCut-Cent{centmin:02d}{centmax:02d}"
-    json_dict["TestCut"][cent_key] = {
+    json_dict["BDTCut"][cent_key] = {
         "centMin": centmin,
         "centMax": centmax
     }
     for i, (ptmin, ptmax) in enumerate(PT_BINS):
         pt_key = f"AddPtCut-pTBin{i+1}"
-        model_name = f"cent_{centmin}_{centmax}_pt{ptmin}_{ptmax}_onnx.onnx"
+        model_name = f"modelBDT_cent{centmin}_{centmax}_pt{ptmin}_{ptmax}_onnx.onnx"
         cut_value = best_cuts_dict[f"{centmin}_{centmax}_{ptmin}_{ptmax}"]
 
-        json_dict["TestCut"]["modelFiles"].append(model_name)
-        json_dict["TestCut"][cent_key][pt_key] = {
+        json_dict["BDTCut"]["modelFiles"].append(model_name)
+        json_dict["BDTCut"][cent_key][pt_key] = {
             "pTMin": ptmin,
             "pTMax": ptmax,
             "AddMLCut-background": {
                 "var": "kBdtBackground",
-                "cut": cut_value,
+                "cut": f"{cut_value:.2f}",
                 "exclude": False
             }
         }

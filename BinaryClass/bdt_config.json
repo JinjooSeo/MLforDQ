@@ -1,5 +1,5 @@
 {
-  "TestCut": {
+  "BDTCut": {
     "type": "Binary",
     "title": "MyBDTModel",
     "inputFeatures": [
@@ -10,13 +10,11 @@
       "kITSChi2NCl2",
       "kTPCNClsCR2",
       "kTPCChi2NCl2",
-      "kTPCNSigmaEl2",
-      "kChi2pca",
-      "kCosPointingAngle"
+      "kTPCNSigmaEl2"
     ],
     "modelFiles": [
-      "cent_0_100_pt0_2_onnx.onnx",
-      "cent_0_100_pt2_100_onnx.onnx"
+      "modelBDT_cent0_100_pt0_2_onnx.onnx",
+      "modelBDT_cent0_100_pt2_100_onnx.onnx"
     ],
     "cent": "kCentFT0C",
     "AddCentCut-Cent00100": {
@@ -27,7 +25,7 @@
         "pTMax": 2,
         "AddMLCut-background": {
           "var": "kBdtBackground",
-          "cut": 0.5427391375914422,
+          "cut": "0.58",
           "exclude": false
         }
       },
@@ -36,7 +34,7 @@
         "pTMax": 100,
         "AddMLCut-background": {
           "var": "kBdtBackground",
-          "cut": 0.5349093448757238,
+          "cut": "0.59",
           "exclude": false
         }
       }
