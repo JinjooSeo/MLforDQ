@@ -1,4 +1,4 @@
-# 🧠 BDT Training for DQ Framework (hipe4ML + XGBoost)
+# BDT Training for DQ Framework (hipe4ML + XGBoost)
 
 
 This script provides a **training and export pipeline** for BDT models using [**hipe4ml**](https://github.com/hipe4ml/hipe4ml), optimized for the **O2 DQ framework**.
@@ -14,7 +14,7 @@ It automates:
 
 ---
 
-## ⚙️ Requirements
+## Requirements
 
 ### Python dependencies
 ```bash
