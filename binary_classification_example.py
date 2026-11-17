@@ -42,13 +42,6 @@ os.makedirs(FIG_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True) 
 
 # Parameters for significance calculation
-LUMI = 1706952.6 # Integrated luminosity in microbarn^-1 for pp TRD triggered data (need to change to Run 3 value)
-XSEC_MUB = 0.944 # J/psi cross section in microbarn for 2 < pT < 8 GeV/c and |y|<0.9 
-ACC_EFF = 0.013 # Acceptance times efficiency of Jpsi from TRD analysis in 2 < pT < 8 GeV/c and |y|<0.9 (need to change to Run 3 value)
-BR_JPSI = 0.0597 # Branching ratio of Jpsi to e+e-
-SIG_WINOW = 0.4 # Signal window width in GeV/c^2 [2.8 - 3.1]
-DELTAY = 1.8 # rapidity range |y| < 0.9
-DELTAPT = 6.0 # pT range 2 < pT < 8 GeV/c
 SB_LEFT = (2.4, 2.8)
 SB_RIGHT = (3.1, 3.5)
 BKG_TRAIN_SB = '(2.0 < fMass < 2.6) or (3.3 < fMass < 4.0)'   # background for training: data sidebands
