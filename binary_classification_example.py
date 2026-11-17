@@ -18,6 +18,7 @@ from parquet_to_root import parquet_to_root
 
 # ========== Configuration ==========
 # Parameters for training
+FEATURES = ["fTPCNSigmaEl1", "fTPCNSigmaPi1", "fTPCNClsCR1", "fTPCNSigmaEl2", "fTPCNSigmaPi2", "fTPCNClsCR2"]
 N_ESTIMATORS = (20, 1000)
 MAX_DEPTH = (2, 6)
 LEARNING_RATE = (0.01, 0.1)
@@ -26,8 +27,8 @@ TIMEOUT=60
 N_TRIALS=100
 
 # pT and centrality bins and type for cut and JSON
-PT_BINS = [(0, 2), (2, 4), (4, 6), (6, 8), (8, 20)]  # pT bins
-CENT_BINS = [(0, 100)]  # centrality bins #(-1, 100) for pp
+PT_BINS = [(1, 3), (3, 6), (6, 20)]  # pT bins
+CENT_BINS = [(-1, 101)]  # centrality bins #(-1, 100) for pp
 CENT_TYPE = "kCentFT0C" # kCentFT0C, kCentFT0A, kCentFT0M (can be extracted from Dielectrons, ReducedEventsInfo, ReducedEventsExtended)
 
 # Input tree files (from dielectronall table)
@@ -50,6 +51,10 @@ DELTAY = 1.8 # rapidity range |y| < 0.9
 DELTAPT = 6.0 # pT range 2 < pT < 8 GeV/c
 SB_LEFT = (2.4, 2.8)
 SB_RIGHT = (3.1, 3.5)
+BKG_TRAIN_SB = '(2.0 < fMass < 2.6) or (3.3 < fMass < 4.0)'   # background for training: data sidebands
+PEAK = (2.9, 3.2)                                              # J/psi counting window
+NEAR_SB = ((2.6, 2.75), (3.35, 3.5))                           # same width as PEAK, not used in training
+BKG_OVER_SIG = 3                                               # background rows per signal row (at most)
 
 # ========== Utils ==========
 def infer_n_features(mh: ModelHandler, input_table=None):
@@ -60,34 +65,17 @@ def infer_n_features(mh: ModelHandler, input_table=None):
             return pd.read_parquet(input_table).shape[1]
         raise ValueError("Cannot determine n_features. Provide input table.")
 
-def significance_array(y_score, bkg_mass, signal_efficiencies, lumi, xsec, acc_eff, delta_y, delta_pt, br,sig_win_width, sb_left, sb_right, n_points=100):
-    thresholds = np.linspace(np.min(y_score), np.max(y_score), n_points)
-    sig_array = []
-
-    for i, thr in enumerate(thresholds[:-1]):
-        selected = y_score > thr
-        selected_bkg_mass = bkg_mass[selected]
-
-        sideband_mask = ((selected_bkg_mass > sb_left[0]) & (selected_bkg_mass < sb_left[1])) | \
-                        ((selected_bkg_mass > sb_right[0]) & (selected_bkg_mass < sb_right[1]))
-        bkg_sb = selected_bkg_mass[sideband_mask]
-        sb_width = (sb_left[1] - sb_left[0]) + (sb_right[1] - sb_right[0])
-
-        bkg_est_in_window = (len(bkg_sb) / sb_width) * sig_win_width if sb_width > 0 else 0
-
-        signal_eff = signal_efficiencies[i]
-        signal_yield = xsec * acc_eff * signal_eff * lumi * delta_y * br
-
-        S = signal_yield
-        B = bkg_est_in_window
-        if S + B > 0:
-            sig = S / np.sqrt(S + B)
-        else:
-            sig = 0
-        
-        sig_array.append(sig)
-
-    return np.array(sig_array), thresholds
+def significance_array(y_score, mass, n_points=100):
+    # S = (peak - near sidebands) after the cut, B = near sidebands, significance = S / sqrt(S + B) = S / sqrt(N_peak)
+    thresholds = np.linspace(0.0, 0.99, n_points)
+    is_peak = (mass > PEAK[0]) & (mass < PEAK[1])
+    is_nsb = np.zeros(len(mass), dtype=bool)
+    for lo, hi in NEAR_SB:
+        is_nsb |= (mass > lo) & (mass < hi)
+    n_peak = np.array([(y_score[is_peak] > t).sum() for t in thresholds])
+    n_nsb = np.array([(y_score[is_nsb] > t).sum() for t in thresholds])
+    sig_array = (n_peak - n_nsb) / np.sqrt(np.maximum(n_peak, 1.0))
+    return sig_array, thresholds
 
 def export_to_onnx(model_handler, prefix, feature_names, input_table=None):
     n_features = infer_n_features(model_handler, input_table)
@@ -102,7 +90,7 @@ def export_to_onnx(model_handler, prefix, feature_names, input_table=None):
         meta.value = name
 
     out_path = f"{prefix}_onnx.onnx"
-    converter.dump_model_onnx(out_path)
+    onnx.save(onnx_model, out_path)
     print(f"Exported ONNX: {out_path}")
 
     model = onnx.load(out_path)
@@ -113,7 +101,7 @@ def export_to_onnx(model_handler, prefix, feature_names, input_table=None):
 
 # ========== Main Training ==========
 best_cuts_dict = {}
-pre_cut = '1.8 < fMass < 5.0 and -0.4 < fDcaXY1 < 0.4 and -0.4 < fDcaZ1 < 0.4 and -0.4 < fDcaXY2 < 0.4 and -0.4 < fDcaZ2 < 0.4'
+pre_cut = 'fSign == 0 and 1.8 < fMass < 4.2'
 
 for centmin, centmax in CENT_BINS:
     for i, (ptmin, ptmax) in enumerate(PT_BINS):
@@ -128,15 +116,17 @@ for centmin, centmax in CENT_BINS:
         dataH = TreeHandler(DATA_FILE,'O2rtdielectronall')
 
         # Prepare datasets
-        promptH = promptH_origin.get_subset(size=10000) # Limit size for faster testing
+        promptH = promptH_origin
         promptH.apply_preselections(cut)
-        promptH.apply_preselections(f'fMcDecision > 1 and 2.4 < fMass < 3.2')
+        promptH.apply_preselections(f'fMcDecision > 1 and 2.4 < fMass < 3.3')
         dataH = dataH.get_subset(cut)
-        bkgH = dataH.get_subset('1.8 < fMass < 2.4 or 3.2 < fMass < 5.0', size=promptH.get_n_cand() * 2) # Neet to optimize size ratio
+        n_bkg = min(dataH.get_subset(BKG_TRAIN_SB).get_n_cand(), BKG_OVER_SIG * promptH.get_n_cand())
+        bkgH = dataH.get_subset(BKG_TRAIN_SB, size=n_bkg, rndm_state=1)
         train_test_data = train_test_generator([promptH, bkgH], [1, 0], test_size=0.5, random_state=42)
+        w_train = np.where(np.asarray(train_test_data[1]) == 1, bkgH.get_n_cand() / promptH.get_n_cand(), 1.0)
         
         # Plot distributions and correlations before training
-        branches_to_remove = ["fSign", "fFilterMap", "fMcDecision", 
+        branches_to_remove = ["fSign", "fFilterMap", "fMcDecision", "fMcSig", "fFileIdx",
             "fDCAxyzTrk0KF", "fDCAxyzTrk1KF", "fDCAxyzBetweenTrksKF",
             "fDCAxyTrk0KF", "fDCAxyTrk1KF", "fDCAxyBetweenTrksKF",
             "fDeviationTrk0KF", "fDeviationTrk1KF", "fDeviationxyTrk0KF", "fDeviationxyTrk1KF",
@@ -187,9 +177,7 @@ for centmin, centmax in CENT_BINS:
         corr_plots[1].savefig(f'{FIG_DIR}/plot_corr_sig_{tag}.png', bbox_inches='tight')
 
         # Remove mass and pT from features
-        features_for_train = vars_to_draw.copy()
-        features_for_train.remove('fMass')
-        features_for_train.remove('fPt')
+        features_for_train = FEATURES.copy()
 
         # Train model
         model_clf = xgb.XGBClassifier()
@@ -197,7 +185,7 @@ for centmin, centmax in CENT_BINS:
 
         hyper_pars_ranges = {'n_estimators': N_ESTIMATORS, 'max_depth': MAX_DEPTH, 'learning_rate': LEARNING_RATE}
         model_hdl.optimize_params_optuna(train_test_data, hyper_pars_ranges, cross_val_scoring='roc_auc', timeout=TIMEOUT, n_jobs=N_JOBS, n_trials=N_TRIALS, direction='maximize')
-        model_hdl.train_test_model(train_test_data)
+        model_hdl.train_test_model(train_test_data, sample_weight=w_train)
 
         # Calculate significance
         y_pred_train = model_hdl.predict(train_test_data[0], False)
@@ -206,20 +194,18 @@ for centmin, centmax in CENT_BINS:
         dataH.apply_model_handler(model_hdl, False)
         bdt_scores = dataH.get_data_frame()["model_output"].to_numpy()
         mass_after_cut = dataH.get_data_frame()["fMass"].to_numpy()
-        efficiency_array, _ = analysis_utils.bdt_efficiency_array(train_test_data[3], y_pred_test, n_points=100)
-        
-        sig_array, thresholds = significance_array(bdt_scores, mass_after_cut, efficiency_array, 
-                LUMI, XSEC_MUB, ACC_EFF, DELTAY, DELTAPT, BR_JPSI, SIG_WINOW, SB_LEFT, SB_RIGHT, n_points=100)
+
+        sig_array, thresholds = significance_array(bdt_scores, mass_after_cut, n_points=100)
 
         # Find best cut
         best_idx = np.argmax(sig_array)
-        best_cut = thresholds[best_idx]
+        best_cut = float(np.round(thresholds[best_idx], 2))
         best_sig = sig_array[best_idx]
 
         print(f"Best cut for pT {ptmin}-{ptmax}: {best_cut:.3f}, Significance = {best_sig:.2f}")
         
         plt.figure()
-        plt.plot(thresholds[:-1], sig_array, marker='o')
+        plt.plot(thresholds, sig_array, marker='o')
         plt.xlabel("BDT Score Threshold")
         plt.ylabel("Significance (S / √(S + B))")
         plt.grid(True)
@@ -242,11 +228,11 @@ for centmin, centmax in CENT_BINS:
         plt.savefig(f'{FIG_DIR}/fMassTrue_{tag}.png', dpi=300)
         plot_utils.plot_distr([selected_data_hndl, dataH], column='fMass', bins=50, labels=labels_list, colors=colors_list, density=False, fill=True, histtype='step', alpha=0.5)
         plt.savefig(f'{FIG_DIR}/fMassTogetherTrue_{tag}.png', dpi=300)
-        plot_utils.plot_output_train_test(model_hdl, train_test_data, 100, False, labels_list, True, density=True)
+        plot_utils.plot_output_train_test(model_hdl, train_test_data, 100, False, ['background', 'signal'], True, density=True)
         plt.savefig(f'{FIG_DIR}/ml_out_fig_{tag}.png', dpi=300)
-        plot_utils.plot_roc_train_test(train_test_data[3], y_pred_test,train_test_data[1], y_pred_train, None, labels_list)
+        plot_utils.plot_roc_train_test(train_test_data[3], y_pred_test,train_test_data[1], y_pred_train, None, ['background', 'signal'])
         plt.savefig(f'{FIG_DIR}/roc_train_test_fig_{tag}.png', dpi=300)
-        plot_utils.plot_precision_recall(train_test_data[3], y_pred_test, labels_list)
+        plot_utils.plot_precision_recall(train_test_data[3], y_pred_test, ['background', 'signal'])
         plt.savefig(f'{FIG_DIR}/precision_recall_{tag}.png', dpi=300)
         eff, thr = analysis_utils.bdt_efficiency_array(train_test_data[3], y_pred_test, n_points=10)
         plot_utils.plot_bdt_eff(thr, eff)
@@ -295,8 +281,9 @@ for centmin, centmax in CENT_BINS:
             "pTMax": ptmax,
             "AddMLCut-background": {
                 "var": "kBdtBackground",
-                "cut": f"{cut_value:.2f}",
-                "exclude": False
+                # O2 reads output 0 = P(background); keep pairs with P(background) < 1 - cut on the signal score.
+                "cut": float(np.round(1.0 - cut_value, 2)),
+                "exclude": True
             }
         }
 
